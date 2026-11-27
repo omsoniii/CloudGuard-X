@@ -9,6 +9,11 @@
 ![Architecture](https://img.shields.io/badge/Architecture-Client_Side-teal)
 ![Security Tests](https://img.shields.io/badge/Security_Tests-5_Passed-green)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+## Live Application
+
+- [Launch CloudGuard X](https://omsoniii.github.io/CloudGuard-X/)
+- [Personal AWS Security Assessment](https://omsoniii.github.io/CloudGuard-X/personal-audit.html)
+- [Installation Guide](https://omsoniii.github.io/CloudGuard-X/get-started.html)
 ## Overview
 
 CloudGuard X is an AWS cloud security assessment and compliance automation project designed to identify selected cloud misconfigurations, evaluate security controls, and visualize security findings.
