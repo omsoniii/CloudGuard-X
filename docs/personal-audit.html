@@ -1,0 +1,217 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self';
+          style-src 'self'; img-src 'self' data:;
+          connect-src 'none'; object-src 'none';
+          base-uri 'none'; form-action 'none';">
+
+    <title>CloudGuard X | Personal Audit</title>
+    <link rel="stylesheet" href="audit.css">
+    <script src="audit.js" defer></script>
+</head>
+
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        CLOUDGUARD <span>X</span>
+        <small>Security Intelligence Platform</small>
+    </div>
+
+    <nav>
+        <a href="index.html">Historical Demo</a>
+    
+        <a href="personal-audit.html" class="active">
+            Personal Audit
+        </a>
+    
+        <a href="get-started.html">Get Started</a>
+    </nav>
+</header>
+
+<main>
+
+    <section class="intro">
+        <span class="eyebrow">
+            PERSONAL AWS SECURITY ASSESSMENT
+        </span>
+
+        <h1>Security Command Center</h1>
+
+        <p>
+            Import your AWS security report and explore
+            your cloud security findings.
+        </p>
+    </section>
+
+    <section id="drop-zone" class="upload-panel">
+
+        <div class="upload-icon">&#8682;</div>
+
+        <h2>Import Security Report</h2>
+
+        <p>
+            Drag and drop your CloudGuard X JSON report
+        </p>
+
+        <input type="file"
+               id="file-input"
+               accept=".json,application/json"
+               hidden>
+
+        <button id="browse-btn" type="button">
+            Browse JSON File
+        </button>
+
+        <small>Maximum file size: 5 MB</small>
+
+        <p id="import-status"
+           role="status"
+           aria-live="polite"></p>
+
+        <div class="privacy">
+            Browser-only processing.
+            No AWS credentials required.
+        </div>
+
+    </section>
+
+    <section id="dashboard" hidden>
+
+        <div class="score-panel">
+
+            <div>
+                <span class="eyebrow">
+                    ASSESSED SECURITY PASS RATE
+                </span>
+
+                <div id="score">--</div>
+
+                <p id="assessment-summary"></p>
+                <p id="report-region"></p>
+                <p id="report-date"></p>
+            </div>
+
+            <div class="radar">
+                <div class="radar-inner">
+                    &#9670;
+                </div>
+            </div>
+
+        </div>
+
+        <div class="metrics">
+
+            <article class="metric-card">
+                <small>PASSED CHECKS</small>
+                <h2 id="passed" class="green">00</h2>
+            </article>
+
+            <article class="metric-card">
+                <small>FAILED CHECKS</small>
+                <h2 id="failed" class="red">00</h2>
+            </article>
+
+            <article class="metric-card">
+                <small>WARNINGS</small>
+                <h2 id="warnings" class="yellow">00</h2>
+            </article>
+
+            <article class="metric-card">
+                <small>INFORMATIONAL</small>
+                <h2 id="info" class="blue">00</h2>
+            </article>
+
+        </div>
+
+        <section class="panel">
+            <span class="eyebrow">01 / ANALYTICS</span>
+            <h2>Security Domain Analysis</h2>
+
+            <div id="domain-chart"></div>
+        </section>
+
+        <section class="panel">
+            <span class="eyebrow">02 / RESPONSE</span>
+            <h2>Remediation Recommendations</h2>
+
+            <div id="recommendations"></div>
+        </section>
+
+        <section class="panel">
+
+            <span class="eyebrow">03 / INVESTIGATION</span>
+            <h2>Interactive Audit Explorer</h2>
+
+            <div class="toolbar">
+
+                <input type="search"
+                       id="search"
+                       aria-label="Search findings"
+                       placeholder="Search findings...">
+
+                <select id="status-filter"
+                        aria-label="Filter by status">
+                    <option value="ALL">All statuses</option>
+                    <option value="PASS">Passed</option>
+                    <option value="FAIL">Failed</option>
+                    <option value="WARN">Warnings</option>
+                    <option value="INFO">Informational</option>
+                </select>
+
+                <select id="domain-filter"
+                        aria-label="Filter by domain">
+                    <option value="ALL">All domains</option>
+                </select>
+
+            </div>
+
+            <p id="result-count"></p>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Security Domain</th>
+                            <th>Resource</th>
+                            <th>Finding</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="findings-table"></tbody>
+                </table>
+            </div>
+
+        </section>
+
+        <div class="actions">
+            <button id="print-btn">Export / Print PDF</button>
+            <button id="reset-btn">Clear Report</button>
+        </div>
+
+    </section>
+
+    <footer>
+        <strong>CloudGuard X</strong>
+
+        <p>AWS Cloud Security & Compliance Automation</p>
+
+        <p>
+            Imported assessment results, not live monitoring.
+            Pass rates cover evaluated checks only.
+            SOC 2-inspired, not SOC 2 certified.
+        </p>
+    </footer>
+
+</main>
+
+</body>
+</html>

@@ -886,6 +886,15 @@ HTML = f"""
     <a href="#remediation">03 &nbsp; Remediation</a>
     <a href="#explorer">04 &nbsp; Audit Explorer</a>
     <a href="#architecture">05 &nbsp; Infrastructure</a>
+    <a href="personal-audit.html"
+       style="color:#5eead4;background:#133832;">
+        06 &nbsp; Personal Audit
+    </a>
+    <a href="get-started.html"
+       style="color:#60a5fa;background:#142335;">
+        07 &nbsp; Get Started
+    </a>
+
   </nav>
 
   <div class="sidebar-bottom">
@@ -900,7 +909,14 @@ HTML = f"""
 
 <div class="topbar between">
   <span class="muted">WORKSPACE / AWS SECURITY LAB</span>
-  <button class="btn" onclick="window.print()">
+  
+    <a class="btn" href="personal-audit.html">
+        Launch Personal Audit
+    </a>
+    <a class="btn" href="get-started.html">
+        Get Started
+    </a>
+    <button class="btn" onclick="window.print()">
     Export / Print PDF
   </button>
 </div>

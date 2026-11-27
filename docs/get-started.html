@@ -1,0 +1,359 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none';
+          style-src 'self' 'unsafe-inline';
+          base-uri 'none'; form-action 'none';">
+
+    <title>CloudGuard X | Get Started</title>
+
+    <link rel="stylesheet" href="audit.css">
+
+    <style>
+        .guide {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        .step-number {
+            display: inline-grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            background: #133832;
+            color: #5eead4;
+            border: 1px solid #297b77;
+            border-radius: 10px;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+
+        .code-block {
+            background: #070b13;
+            border: 1px solid #203044;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 18px 0;
+            overflow-x: auto;
+        }
+
+        pre {
+            margin: 0;
+            color: #5eead4;
+            font-size: 13px;
+            line-height: 1.8;
+        }
+
+        .panel p {
+            color: #8b9db4;
+            margin: 10px 0;
+        }
+
+        .notice {
+            border-left: 3px solid #fbbf24;
+            background: #211d16;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #fbbf24;
+        }
+
+        .launch {
+            display: inline-block;
+            background: #123e3a;
+            border: 1px solid #297b77;
+            border-radius: 8px;
+            color: #5eead4;
+            padding: 12px 24px;
+            margin-top: 15px;
+            font-weight: 600;
+            transition: .3s;
+        }
+
+        .launch:hover {
+            background: #195b54;
+            box-shadow: 0 0 25px #5eead430;
+        }
+
+        .panel {
+            transition: .3s;
+        }
+
+        .panel:hover {
+            border-color: #39716e;
+        }
+
+        .panel ul {
+            color: #8b9db4;
+            padding-left: 22px;
+        }
+    </style>
+</head>
+
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        CLOUDGUARD <span>X</span>
+        <small>Security Intelligence Platform</small>
+    </div>
+
+    <nav>
+        <a href="index.html">Historical Demo</a>
+        <a href="personal-audit.html">Personal Audit</a>
+        <a href="get-started.html" class="active">
+            Get Started
+        </a>
+    </nav>
+</header>
+
+<main class="guide">
+
+    <section class="intro">
+        <span class="eyebrow">
+            CLOUDGUARD X / QUICK START
+        </span>
+
+        <h1>Scan Your AWS Account</h1>
+
+        <p>
+            Perform a read-only AWS security assessment
+            and visualize your findings using CloudGuard X.
+        </p>
+    </section>
+
+    <section class="panel">
+        <span class="eyebrow">PREREQUISITES</span>
+
+        <h2>What You Need</h2>
+
+        <ul>
+            <li>An authorized AWS account</li>
+            <li>Python 3 installed</li>
+            <li>AWS CLI v2</li>
+            <li>Git</li>
+            <li>Appropriate read-only AWS permissions</li>
+        </ul>
+
+        <div class="notice">
+            Only assess AWS accounts that you own
+            or have explicit permission to assess.
+            Never share AWS credentials with this website.
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="step-number">01</div>
+
+        <h2>Download CloudGuard X</h2>
+
+        <p>Clone the project repository.</p>
+
+        <div class="code-block">
+<pre>git clone https://github.com/omsoniii/CloudGuard-X.git
+cd CloudGuard-X</pre>
+        </div>
+
+        <a class="launch"
+           href="https://github.com/omsoniii/CloudGuard-X"
+           target="_blank"
+           rel="noopener noreferrer">
+            View GitHub Repository
+        </a>
+    </section>
+
+    <section class="panel">
+        <div class="step-number">02</div>
+
+        <h2>Install Dependencies</h2>
+
+        <p>macOS / Linux:</p>
+
+        <div class="code-block">
+<pre>python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt</pre>
+        </div>
+
+        <p>Windows PowerShell:</p>
+
+        <div class="code-block">
+<pre>py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt</pre>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="step-number">03</div>
+
+        <h2>Configure AWS Authentication</h2>
+
+        <p>
+            Use an authorized read-only AWS profile.
+            IAM Identity Center with temporary
+            credentials is recommended.
+        </p>
+
+        <p>
+            Ask your AWS administrator to provision
+            appropriate audit permissions, such as
+            the AWS SecurityAudit managed policy.
+        </p>
+
+        <div class="code-block">
+<pre>aws configure sso --profile cloudguard-audit
+aws sso login --profile cloudguard-audit</pre>
+        </div>
+
+        <p>Verify your authenticated identity:</p>
+
+        <div class="code-block">
+<pre>aws sts get-caller-identity --profile cloudguard-audit</pre>
+        </div>
+
+        <div class="notice">
+            Do not use root credentials or unnecessary
+            administrator privileges. Required permissions
+            may vary depending on your AWS environment.
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="step-number">04</div>
+
+        <h2>Run Security Assessment</h2>
+
+        <p>
+            Select your AWS profile and the region
+            you want to assess.
+        </p>
+
+        <div class="code-block">
+<pre>python scanner.py --profile cloudguard-audit --region ap-south-1 --output reports/cloudguard-report.json</pre>
+        </div>
+
+        <p>
+            Replace ap-south-1 with your preferred
+            AWS region.
+        </p>
+
+        <p>Available scanner options:</p>
+
+        <div class="code-block">
+<pre>python scanner.py --help</pre>
+        </div>
+
+        <p>
+            The scanner performs selected checks covering
+            IAM, S3, CloudTrail, EC2 security groups
+            and EBS encryption.
+        </p>
+    </section>
+
+    <section class="panel">
+        <div class="step-number">05</div>
+
+        <h2>Import Your Security Report</h2>
+
+        <p>
+            Open Personal Audit and select the generated
+            reports/cloudguard-report.json file.
+        </p>
+
+        <p>
+            Your findings will be processed locally
+            in your browser.
+        </p>
+
+        <a class="launch" href="personal-audit.html">
+            Launch Personal Audit
+        </a>
+    </section>
+
+    <section class="panel">
+        <div class="step-number">06</div>
+
+        <h2>Analyze Your Security Findings</h2>
+
+        <ul>
+            <li>Calculated security pass rate</li>
+            <li>Passed and failed checks</li>
+            <li>Security warnings</li>
+            <li>Security domain analysis</li>
+            <li>Rule-based remediation recommendations</li>
+            <li>Searchable security findings</li>
+            <li>Printable assessment report</li>
+        </ul>
+    </section>
+
+    <section class="panel">
+        <span class="eyebrow">SECURITY & PRIVACY</span>
+
+        <h2>Your Data Stays With You</h2>
+
+        <ul>
+            <li>No AWS credentials collected by the website.</li>
+            <li>No external report processing API.</li>
+            <li>No server-side report database.</li>
+            <li>No automatic infrastructure remediation.</li>
+        </ul>
+
+        <div class="notice">
+            Reports may contain sensitive AWS resource names.
+            Keep them private and review them before sharing.
+        </div>
+    </section>
+
+    <section class="panel">
+        <span class="eyebrow">ASSESSMENT SCOPE</span>
+
+        <h2>Important Limitations</h2>
+
+        <p>
+            CloudGuard X evaluates selected security
+            configurations. Regional checks are limited
+            to the selected AWS region.
+        </p>
+
+        <p>
+            Missing permissions may prevent checks
+            from completing. A failed scan does not
+            generate a new complete report.
+        </p>
+
+        <p>
+            Imported report authenticity is not independently
+            verified. A high pass rate does not establish
+            complete AWS security or compliance.
+        </p>
+
+        <p>
+            SOC 2-inspired, not SOC 2 certified.
+            This project is not a substitute for a
+            comprehensive security audit.
+        </p>
+
+        <p>
+            Terraform deployment is not required to use
+            the scanner. AWS usage charges, if applicable,
+            remain the account owner's responsibility.
+        </p>
+    </section>
+
+    <footer>
+        <strong>CloudGuard X</strong>
+        <p>AWS Cloud Security & Compliance Automation</p>
+        <p>Python / Boto3 / Terraform / AWS</p>
+    </footer>
+
+</main>
+
+</body>
+</html>

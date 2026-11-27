@@ -1,9 +1,83 @@
-
+import argparse
 import boto3
+import json
+import re
+import io
+import sys
 
+from pathlib import Path
+from datetime import datetime, timezone
+from botocore.exceptions import (
+    ClientError,
+    BotoCoreError,
+    NoCredentialsError,
+    ProfileNotFound
+)
+
+
+def handle_error(exc_type, exc_value, exc_traceback):
+    sys.stdout = sys.__stdout__
+
+    if isinstance(exc_value, ProfileNotFound):
+        print("[ERROR] AWS profile not found.")
+
+    elif isinstance(exc_value, NoCredentialsError):
+        print("[ERROR] AWS credentials not configured.")
+
+    elif isinstance(exc_value, ClientError):
+        code = exc_value.response.get(
+            "Error", {}
+        ).get("Code", "Unknown")
+
+        print(f"[ERROR] AWS API request failed: {code}")
+        print("Check your AWS permissions and session.")
+
+    elif isinstance(exc_value, BotoCoreError):
+        print("[ERROR] AWS connection or authentication failed.")
+
+    else:
+        sys.__excepthook__(
+            exc_type, exc_value, exc_traceback
+        )
+        return
+
+    print("Scan incomplete. No new report generated.")
+
+
+sys.excepthook = handle_error
+
+parser = argparse.ArgumentParser(
+    description="CloudGuard X - AWS Security Scanner"
+)
+
+parser.add_argument(
+    "--profile",
+    default=None,
+    help="AWS CLI profile name"
+)
+
+parser.add_argument(
+    "--region",
+    default="ap-south-1",
+    help="AWS region to scan"
+)
+parser.add_argument(
+    "--output",
+    default="reports/cloudguard-report.json",
+    help="Path to save the JSON audit report"
+)
+args = parser.parse_args()
+class OutputCapture(io.StringIO):
+    def write(self, text):
+        sys.__stdout__.write(text)
+        return super().write(text)
+
+
+capture = OutputCapture()
+sys.stdout = capture
 session = boto3.Session(
-    profile_name="cloud-security-audit",
-    region_name="ap-south-1"
+    profile_name=args.profile,
+    region_name=args.region
 )
 
 iam = session.client("iam")
@@ -223,3 +297,86 @@ else:
     for group in groups:
         print(f"Admin Group: {group['GroupName']}")
 
+# CloudGuard X JSON Report Engine
+
+sys.stdout = sys.__stdout__
+
+domains = {
+    "S3 SECURITY AUDIT": "Data Protection",
+    "CLOUDTRAIL SECURITY AUDIT": "Audit Logging",
+    "EC2 SECURITY GROUP AUDIT": "Network Security",
+    "EBS ENCRYPTION AUDIT": "Encryption",
+    "IAM PERMISSIONS AUDIT": "Identity & Access"
+}
+
+findings = []
+domain = "Identity & Access"
+resource = "AWS Account"
+
+for line in capture.getvalue().splitlines():
+    line = line.strip()
+
+    if line in domains:
+        domain = domains[line]
+        resource = "Account / Region"
+
+    if line.startswith(
+        ("Bucket:", "Trail:", "Security Group:", "Volume:")
+    ):
+        resource = line.split(":", 1)[1].strip()
+
+    match = re.match(
+        r"^\[(PASS|FAIL|WARN|INFO)\]\s*(.*)$",
+        line
+    )
+
+    if match:
+        status, message = match.groups()
+
+        findings.append({
+            "domain": domain,
+            "resource": resource,
+            "status": status,
+            "message": message
+        })
+
+counts = {
+    status: sum(
+        f["status"] == status for f in findings
+    )
+    for status in ("PASS", "FAIL", "WARN", "INFO")
+}
+
+total = counts["PASS"] + counts["FAIL"] + counts["WARN"]
+
+report = {
+    "schema_version": "1.0",
+    "tool": "CloudGuard X",
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "region": args.region,
+    "summary": {
+        "passed": counts["PASS"],
+        "failed": counts["FAIL"],
+        "warnings": counts["WARN"],
+        "informational": counts["INFO"],
+        "evaluated": total,
+        "score": round(
+            counts["PASS"] / total * 100, 2
+        ) if total else None
+    },
+    "findings": findings
+}
+
+output_path = Path(args.output)
+output_path.parent.mkdir(parents=True, exist_ok=True)
+
+output_path.write_text(
+    json.dumps(report, indent=4),
+    encoding="utf-8"
+)
+
+print("\n" + "=" * 40)
+print("CloudGuard X JSON Report Generated")
+print(f"Report saved: {output_path}")
+print(f"Evaluated checks: {total}")
+print(f"Security pass rate: {report['summary']['score']}")
