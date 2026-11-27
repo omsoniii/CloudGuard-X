@@ -1,0 +1,1121 @@
+
+from pathlib import Path
+from collections import Counter
+from html import escape
+import json
+import re
+
+ROOT = Path(__file__).resolve().parent
+REPORTS = ROOT / "reports"
+
+sources = {
+    "baseline": "baseline-audit.txt",
+    "ebs": "remediated-audit.txt",
+    "ssh": "misconfiguration-audit.txt",
+    "final": "network-remediation-audit.txt"
+}
+
+labels = {
+    "baseline": "Initial baseline",
+    "ebs": "EBS remediation",
+    "ssh": "Controlled SSH test",
+    "final": "Final assessment"
+}
+
+domains = {
+    "S3 SECURITY AUDIT": "Data Protection",
+    "CLOUDTRAIL SECURITY AUDIT": "Audit Logging",
+    "EC2 SECURITY GROUP AUDIT": "Network Security",
+    "EBS ENCRYPTION AUDIT": "Encryption",
+    "IAM PERMISSIONS AUDIT": "Identity & Access"
+}
+
+def parse_report(text):
+    findings = []
+    domain = "Identity & Access"
+    resource = "AWS account"
+
+    for line in text.splitlines():
+        line = line.strip()
+
+        if line in domains:
+            domain = domains[line]
+            resource = "Account / Region"
+
+        if line.startswith("Security Group:"):
+            resource = line.split(":", 1)[1].strip()
+
+        if line.startswith("Bucket:"):
+            resource = "Lab S3 bucket"
+
+        if line.startswith("Trail:"):
+            resource = "Lab CloudTrail"
+
+        if line.startswith("Volume:"):
+            resource = "EBS volume"
+
+        match = re.match(
+            r"^\[(PASS|FAIL|WARN|INFO)\]\s*(.*)$",
+            line
+        )
+
+        if match:
+            status, message = match.groups()
+
+            findings.append({
+                "domain": domain,
+                "resource": resource,
+                "status": status,
+                "message": message
+            })
+
+    if not findings:
+        raise ValueError("Audit report is empty")
+
+    return findings
+
+def stats(findings):
+    counts = Counter(f["status"] for f in findings)
+    total = sum(counts[s] for s in ("PASS", "FAIL", "WARN"))
+
+    return {
+        "pass": counts["PASS"],
+        "fail": counts["FAIL"],
+        "warn": counts["WARN"],
+        "info": counts["INFO"],
+        "total": total,
+        "score": round(counts["PASS"] / total * 100, 1)
+                 if total else 0
+    }
+
+snapshots = {
+    key: parse_report(
+        (REPORTS / filename).read_text(encoding="utf-8")
+    )
+    for key, filename in sources.items()
+}
+
+history = {
+    key: stats(value)
+    for key, value in snapshots.items()
+}
+
+final = history["final"]
+
+def has_finding(stage, status, message, resource=None):
+    return any(
+        f["status"] == status
+        and f["message"] == message
+        and (resource is None or f["resource"] == resource)
+        for f in snapshots[stage]
+    )
+
+ebs_fixed = (
+    has_finding(
+        "baseline", "FAIL",
+        "EBS default encryption disabled"
+    )
+    and has_finding(
+        "final", "PASS",
+        "EBS default encryption enabled"
+    )
+)
+
+ssh_fixed = (
+    has_finding(
+        "ssh", "FAIL",
+        "SSH open to internet",
+        "cloud-security-lab-sg"
+    )
+    and has_finding(
+        "final", "PASS",
+        "No targeted public exposure found",
+        "cloud-security-lab-sg"
+    )
+)
+
+resolved = int(ebs_fixed) + int(ssh_fixed)
+
+delivery = json.loads(
+    (REPORTS / "cloudtrail-delivery.json").read_text()
+)
+
+delivery_ok = bool(
+    delivery.get("LatestDeliveryTime")
+    and not delivery.get("LatestDeliveryError")
+)
+
+domain_cards = ""
+
+for name in sorted(set(f["domain"] for f in snapshots["final"])):
+    selected = [
+        f for f in snapshots["final"]
+        if f["domain"] == name and f["status"] != "INFO"
+    ]
+
+    result = stats(selected)
+
+    domain_cards += f"""
+    <div class="domain">
+      <div class="between">
+        <span>{escape(name)}</span>
+        <strong>{result['pass']}/{result['total']}</strong>
+      </div>
+      <div class="track">
+        <i style="width:{result['score']}%"></i>
+      </div>
+    </div>
+    """
+
+history_cards = ""
+
+for key, result in history.items():
+    history_cards += f"""
+    <div class="history-item">
+      <div class="chart-value">{result['score']:g}%</div>
+      <div class="chart-track">
+        <div class="chart-bar"
+             style="height:{result['score']}%"></div>
+      </div>
+      <strong>{escape(labels[key])}</strong>
+      <small>{result['pass']} passed /
+             {result['fail']} failed</small>
+    </div>
+    """
+
+def remediation(fid, name, detail, fixed):
+    state = "RESOLVED" if fixed else "REVIEW"
+    color = "pass" if fixed else "warn"
+
+    return f"""
+    <article class="panel remediation">
+      <div class="between">
+        <span class="eyebrow">{fid}</span>
+        <span class="status {color}">{state}</span>
+      </div>
+      <h3>{name}</h3>
+      <p>{detail}</p>
+      <div class="transition">
+        <span class="status fail">FAIL</span>
+        <span class="muted">──────────→</span>
+        <span class="status {color}">
+          {'PASS' if fixed else 'REVIEW'}
+        </span>
+      </div>
+    </article>
+    """
+
+remediations = (
+    remediation(
+        "AWS-EBS-001",
+        "Encryption at rest",
+        "Enabled regional EBS default encryption.",
+        ebs_fixed
+    )
+    + remediation(
+        "AWS-NET-001",
+        "Unrestricted SSH ingress",
+        "Detected and removed a controlled public SSH rule.",
+        ssh_fixed
+    )
+)
+
+data = json.dumps(
+    {"snapshots": snapshots, "labels": labels}
+).replace("<", "\\u003c")
+
+CSS = """
+:root {
+  --bg:#070b13;
+  --panel:#0d1725;
+  --line:#203044;
+  --text:#e8eef8;
+  --muted:#8b9db4;
+  --green:#5eead4;
+  --red:#fb7185;
+  --yellow:#fbbf24;
+  --blue:#60a5fa;
+}
+
+* {box-sizing:border-box}
+html {scroll-behavior:smooth}
+
+body {
+  margin:0;
+  color:var(--text);
+  background:
+    radial-gradient(ellipse at 85% 0%,#142b43,transparent 40%),
+    var(--bg);
+  font-family:-apple-system,BlinkMacSystemFont,
+              "Segoe UI",sans-serif;
+  line-height:1.55;
+}
+
+a {color:inherit;text-decoration:none}
+button,input,select {font:inherit}
+button {cursor:pointer}
+h1,h2,h3,p {margin:0}
+h1 {font-size:clamp(30px,4vw,48px);letter-spacing:-2px}
+h2 {font-size:21px;letter-spacing:-.5px}
+h3 {font-size:20px}
+small,.muted {color:var(--muted)}
+
+.eyebrow {
+  color:var(--green);
+  font-size:10px;
+  font-weight:750;
+  letter-spacing:2px;
+}
+
+.sidebar {
+  position:fixed;
+  inset:0 auto 0 0;
+  width:235px;
+  padding:28px 20px;
+  background:#090f1a;
+  border-right:1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  z-index:10;
+}
+
+.logo {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:1.5px;
+}
+
+.logo-icon {
+  display:grid;
+  place-items:center;
+  width:40px;height:40px;
+  border:1px solid #28615f;
+  border-radius:11px;
+  color:var(--green);
+  background:#11312f;
+}
+
+nav {margin-top:45px}
+nav a {
+  display:block;
+  color:var(--muted);
+  font-size:13px;
+  padding:13px;
+  margin:5px 0;
+  border-radius:8px;
+  transition:.2s;
+}
+
+nav a:hover {
+  background:#142a39;
+  color:var(--green);
+  transform:translateX(3px);
+}
+
+.sidebar-bottom {
+  margin-top:auto;
+  border-top:1px solid var(--line);
+  padding-top:20px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+main {
+  margin-left:235px;
+  padding:32px 38px;
+  max-width:1800px;
+}
+
+.between {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.topbar {
+  padding-bottom:22px;
+  border-bottom:1px solid var(--line);
+  font-size:12px;
+}
+
+.btn {
+  color:var(--text);
+  background:#142335;
+  border:1px solid #31445d;
+  padding:10px 16px;
+  border-radius:8px;
+  font-size:12px;
+}
+
+.btn:hover {border-color:var(--green)}
+
+.page-title {padding:30px 0 24px}
+.page-title p {color:var(--muted)}
+
+.hero {
+  position:relative;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:30px;
+  border:1px solid #285064;
+  border-radius:20px;
+  padding:35px;
+  background:
+    linear-gradient(#5eead408 1px,transparent 1px),
+    linear-gradient(90deg,#5eead408 1px,transparent 1px),
+    linear-gradient(120deg,#112438,#102e34);
+  background-size:28px 28px,28px 28px,100% 100%;
+}
+
+.score {
+  font-size:clamp(65px,8vw,100px);
+  line-height:1.15;
+  font-weight:800;
+  letter-spacing:-6px;
+}
+
+.green {color:var(--green)}
+.red {color:var(--red)}
+.yellow {color:var(--yellow)}
+.blue {color:var(--blue)}
+
+.radar {
+  width:190px;height:190px;
+  flex-shrink:0;
+  border-radius:50%;
+  padding:13px;
+  background:conic-gradient(
+    var(--green) var(--score),#26394a 0
+  );
+  box-shadow:0 0 45px #2dd4bf18;
+}
+
+.radar-inner {
+  width:100%;height:100%;
+  border:1px solid #284c54;
+  border-radius:50%;
+  background:#0d1b29;
+  display:grid;
+  place-items:center;
+}
+
+.radar svg {width:90px}
+
+.metrics {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:14px;
+  margin:18px 0 28px;
+}
+
+.panel,.metric-card {
+  background:linear-gradient(145deg,#111c2d,#0c1420);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:23px;
+}
+
+.metric-card {transition:.25s}
+.metric-card:hover {
+  transform:translateY(-4px);
+  border-color:#3e6378;
+}
+
+.metric-card small {font-size:12px}
+
+.metric {
+  font-size:43px;
+  font-weight:750;
+  letter-spacing:-2px;
+  line-height:1.3;
+  margin:8px 0;
+}
+
+.columns {
+  display:grid;
+  grid-template-columns:1.2fr 1fr;
+  gap:16px;
+}
+
+.section {margin-top:30px}
+.section-title {margin-bottom:16px}
+
+.chart {
+  height:225px;
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:14px;
+  margin-top:20px;
+}
+
+.history-item {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  font-size:11px;
+  gap:5px;
+}
+
+.chart-value {
+  color:var(--green);
+  font-weight:700;
+}
+
+.chart-track {
+  width:60%;
+  flex:1;
+  background:#1c2a3c;
+  border-radius:6px;
+  display:flex;
+  align-items:flex-end;
+  overflow:hidden;
+}
+
+.chart-bar {
+  width:100%;
+  background:linear-gradient(0deg,#155e75,#5eead4);
+  border-radius:6px;
+}
+
+.domain {margin-top:22px;font-size:13px}
+
+.track {
+  background:#233145;
+  height:6px;
+  border-radius:20px;
+  overflow:hidden;
+  margin-top:9px;
+}
+
+.track i {
+  display:block;
+  height:100%;
+  border-radius:20px;
+  background:linear-gradient(90deg,#0891b2,#5eead4);
+}
+
+.two {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+}
+
+.remediation h3 {margin:15px 0 6px}
+.remediation p {font-size:13px;color:var(--muted)}
+.transition {margin-top:24px;display:flex;gap:15px}
+
+.status {
+  display:inline-block;
+  font-weight:700;
+  font-size:10px;
+  letter-spacing:.6px;
+  padding:5px 10px;
+  border-radius:5px;
+  white-space:nowrap;
+}
+
+.pass {color:var(--green);background:#153b35}
+.fail {color:var(--red);background:#412332}
+.warn {color:var(--yellow);background:#3e3120}
+.info {color:var(--blue);background:#19344c}
+
+.toolbar {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin:18px 0;
+}
+
+select,input {
+  background:#0a1320;
+  color:var(--text);
+  border:1px solid #2a3a50;
+  border-radius:8px;
+  padding:11px;
+  font-size:13px;
+  outline:none;
+}
+
+input:focus,select:focus {border-color:var(--green)}
+input {flex:1;min-width:160px}
+
+.table-wrap {overflow-x:auto}
+table {width:100%;border-collapse:collapse;font-size:13px}
+th,td {
+  text-align:left;
+  padding:15px 12px;
+  border-bottom:1px solid var(--line);
+}
+th {
+  color:var(--muted);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:1.2px;
+}
+tbody tr:hover {background:#152338}
+
+.architecture {
+  padding:20px;
+  border:1px dashed #3e5269;
+  border-radius:12px;
+  margin-top:20px;
+}
+
+.nodes {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:12px;
+  margin:16px 0;
+}
+
+.node {
+  border:1px solid #35536b;
+  background:#12263a;
+  padding:18px 10px;
+  text-align:center;
+  border-radius:9px;
+}
+
+.node b {display:block;margin-bottom:5px}
+.node small {font-size:11px}
+
+.flow {
+  text-align:center;
+  color:var(--green);
+  font-size:13px;
+  margin:16px 0;
+}
+
+footer {
+  border-top:1px solid var(--line);
+  margin-top:35px;
+  padding:24px 0;
+  color:var(--muted);
+  font-size:11px;
+}
+
+@media(max-width:1100px) {
+  .sidebar {width:190px}
+  main {margin-left:190px;padding:25px}
+  .columns {grid-template-columns:1fr}
+}
+
+@media(max-width:800px) {
+  .sidebar {display:none}
+  main {margin:0;padding:20px}
+  .metrics {grid-template-columns:repeat(2,1fr)}
+  .two {grid-template-columns:1fr}
+}
+
+@media(max-width:500px) {
+  .hero {flex-direction:column;align-items:flex-start}
+  .radar {align-self:center}
+  .nodes {grid-template-columns:1fr}
+  .panel {padding:16px}
+}
+
+@media print {
+  .sidebar,.toolbar,.btn {display:none}
+  main {margin:0;padding:10px}
+  body {-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .panel,.hero {break-inside:avoid}
+}
+"""
+
+JS = """
+const model = JSON.parse(
+  document.getElementById('audit-data').textContent
+);
+
+const stage = document.getElementById('stage');
+const status = document.getElementById('status');
+const domain = document.getElementById('domain');
+const search = document.getElementById('search');
+const table = document.getElementById('results');
+
+const domains = [...new Set(
+  Object.values(model.snapshots).flat().map(x=>x.domain)
+)].sort();
+
+domains.forEach(name=>{
+  const option = document.createElement('option');
+  option.value = name;
+  option.textContent = name;
+  domain.appendChild(option);
+});
+
+function render() {
+  const query = search.value.toLowerCase();
+
+  const items = model.snapshots[stage.value].filter(item=>
+    (status.value==='ALL'||item.status===status.value) &&
+    (domain.value==='ALL'||item.domain===domain.value) &&
+    Object.values(item).join(' ').toLowerCase().includes(query)
+  );
+
+  table.replaceChildren();
+
+  items.forEach(item=>{
+    const row = document.createElement('tr');
+
+    [item.domain,item.message,item.resource].forEach(value=>{
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+
+    const cell = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = 'status '+item.status.toLowerCase();
+    badge.textContent = item.status;
+    cell.appendChild(badge);
+    row.appendChild(cell);
+    table.appendChild(row);
+  });
+
+  document.getElementById('result-count').textContent =
+    items.length+' findings | '+model.labels[stage.value];
+}
+
+[stage,status,domain,search].forEach(control=>
+  control.addEventListener('input',render)
+);
+
+render();
+"""
+
+# CloudGuard X Animation Engine
+
+CSS += """
+@keyframes radarSpin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes shieldPulse {
+    0%, 100% {
+        filter: drop-shadow(0 0 5px #5eead4);
+    }
+    50% {
+        filter: drop-shadow(0 0 20px #5eead4);
+    }
+}
+
+@keyframes growUp {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+}
+
+@keyframes growRight {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+
+@keyframes gridMove {
+    from { background-position: 0 0; }
+    to { background-position: 28px 28px; }
+}
+
+.radar {
+    position: relative;
+    isolation: isolate;
+}
+
+.radar::after {
+    content: "";
+    position: absolute;
+    inset: -9px;
+    border: 2px dashed #5eead477;
+    border-radius: 50%;
+    animation: radarSpin 18s linear infinite;
+    pointer-events: none;
+}
+
+.radar-inner svg {
+    animation: shieldPulse 3s ease-in-out infinite;
+}
+
+.hero {
+    animation: gridMove 5s linear infinite;
+}
+
+.chart-bar {
+    transform-origin: bottom;
+    animation: growUp 1.6s ease-out both;
+}
+
+.track i {
+    transform-origin: left;
+    animation: growRight 1.8s ease-out both;
+}
+
+.node {
+    transition: transform .3s, box-shadow .3s,
+                border-color .3s;
+}
+
+.node:hover {
+    transform: translateY(-5px);
+    border-color: #5eead4;
+    box-shadow: 0 0 25px #2dd4bf25;
+}
+
+.metric-card:hover {
+    box-shadow: 0 0 30px #5eead415;
+}
+
+.reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity .7s ease, transform .7s ease;
+}
+
+.reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
+
+    .reveal {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media print {
+    .reveal {
+        opacity: 1;
+        transform: none;
+    }
+}
+"""
+
+JS += """
+const reducedMotion = window.matchMedia(
+    '(prefers-reduced-motion: reduce)'
+).matches;
+
+function animateNumber(element, target, duration) {
+    const start = performance.now();
+
+    function update(now) {
+        const progress = Math.min(
+            (now - start) / duration, 1
+        );
+
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        element.textContent = Math.round(
+            target * eased
+        ).toString().padStart(2, '0');
+
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        }
+    }
+
+    requestAnimationFrame(update);
+}
+
+if (!reducedMotion) {
+    document.querySelectorAll('.metric').forEach(el => {
+        const target = Number(el.textContent.trim());
+
+        if (Number.isFinite(target)) {
+            animateNumber(el, target, 1500);
+        }
+    });
+
+    if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver(
+            entries => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            },
+            { threshold: 0.08 }
+        );
+
+        document.querySelectorAll('.section').forEach(el => {
+            el.classList.add('reveal');
+            observer.observe(el);
+        });
+    }
+}
+"""
+
+
+HTML = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CloudGuard X | Security Intelligence</title>
+<style>{CSS}</style>
+</head>
+
+<body>
+
+<aside class="sidebar">
+  <div class="logo">
+    <span class="logo-icon">&#9670;</span>
+    <span>CLOUDGUARD <span class="green">X</span></span>
+  </div>
+  <small>Security Intelligence Platform</small>
+
+  <nav>
+    <div class="eyebrow">WORKSPACE</div>
+    <a href="#overview">01 &nbsp; Security Overview</a>
+    <a href="#analytics">02 &nbsp; Posture Analytics</a>
+    <a href="#remediation">03 &nbsp; Remediation</a>
+    <a href="#explorer">04 &nbsp; Audit Explorer</a>
+    <a href="#architecture">05 &nbsp; Infrastructure</a>
+  </nav>
+
+  <div class="sidebar-bottom">
+    AWS SECURITY RESEARCH LAB<br><br>
+    Region: ap-south-1<br>
+    Mode: Historical assessment<br>
+    Framework: SOC 2-inspired
+  </div>
+</aside>
+
+<main>
+
+<div class="topbar between">
+  <span class="muted">WORKSPACE / AWS SECURITY LAB</span>
+  <button class="btn" onclick="window.print()">
+    Export / Print PDF
+  </button>
+</div>
+
+<header class="page-title" id="overview">
+  <span class="eyebrow">CLOUD SECURITY POSTURE MANAGEMENT</span>
+  <h1>Security Command Center</h1>
+  <p>Infrastructure security and compliance automation</p>
+</header>
+
+<section class="hero">
+  <div>
+    <div class="eyebrow">FINAL ASSESSED SECURITY POSTURE</div>
+    <div class="score">{final['score']:g}<span class="green">%</span></div>
+    <h3>{final['pass']} of {final['total']} evaluated checks passed</h3>
+    <p class="muted">Historical pre-cleanup assessment</p>
+    <br>
+    <span class="green">{resolved} verified security remediations</span>
+  </div>
+
+  <div class="radar" style="--score:{final['score']}%">
+    <div class="radar-inner">
+      <svg viewBox="0 0 100 110">
+        <path d="M50 7 L89 23 V52 Q87 80 50 101
+                 Q13 80 11 52 V23 Z"
+              fill="#5eead415" stroke="#5eead4"
+              stroke-width="3"/>
+        <path d="M30 52 L44 66 L72 36"
+              fill="none" stroke="#5eead4"
+              stroke-width="5" stroke-linecap="round"
+              stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<div class="metrics">
+  <div class="metric-card">
+    <small>PASSED CHECKS</small>
+    <div class="metric green">{final['pass']:02d}</div>
+    <small>Successful evaluations</small>
+  </div>
+  <div class="metric-card">
+    <small>FAILED CHECKS</small>
+    <div class="metric red">{final['fail']:02d}</div>
+    <small>Final recorded failures</small>
+  </div>
+  <div class="metric-card">
+    <small>WARNINGS</small>
+    <div class="metric yellow">{final['warn']:02d}</div>
+    <small>Require review</small>
+  </div>
+  <div class="metric-card">
+    <small>REMEDIATED</small>
+    <div class="metric blue">{resolved:02d}</div>
+    <small>Verified improvements</small>
+  </div>
+</div>
+
+<section id="analytics" class="section">
+  <div class="section-title">
+    <span class="eyebrow">01 / ANALYTICS</span>
+    <h2>Security Posture Intelligence</h2>
+  </div>
+  <div class="columns">
+    <div class="panel">
+      <h3>Assessment history</h3>
+      <small>Pass rate across recorded snapshots</small>
+      <div class="chart">{history_cards}</div>
+    </div>
+
+    <div class="panel">
+      <h3>Security domains</h3>
+      <small>Final evaluated control results</small>
+      {domain_cards}
+    </div>
+  </div>
+</section>
+
+<section id="remediation" class="section">
+  <div class="section-title">
+    <span class="eyebrow">02 / RESPONSE</span>
+    <h2>Remediation Intelligence</h2>
+  </div>
+  <div class="two">{remediations}</div>
+</section>
+
+<section id="explorer" class="section">
+  <div class="section-title">
+    <span class="eyebrow">03 / INVESTIGATION</span>
+    <h2>Interactive Audit Explorer</h2>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <select id="stage" aria-label="Audit snapshot">
+        <option value="baseline">Baseline</option>
+        <option value="ebs">EBS remediation</option>
+        <option value="ssh">SSH misconfiguration</option>
+        <option value="final" selected>Final assessment</option>
+      </select>
+
+      <select id="status" aria-label="Status">
+        <option value="ALL">All statuses</option>
+        <option>PASS</option>
+        <option>FAIL</option>
+        <option>WARN</option>
+        <option>INFO</option>
+      </select>
+
+      <select id="domain" aria-label="Security domain">
+        <option value="ALL">All domains</option>
+      </select>
+
+      <input id="search" aria-label="Search findings"
+             placeholder="Search security findings...">
+    </div>
+
+    <small id="result-count"></small>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Security domain</th>
+            <th>Finding</th>
+            <th>Resource</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="results"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="architecture" class="section">
+  <div class="section-title">
+    <span class="eyebrow">04 / INFRASTRUCTURE</span>
+    <h2>AWS Infrastructure Topology</h2>
+  </div>
+
+  <div class="panel">
+    <small>Historical deployed architecture</small>
+
+    <div class="architecture">
+      <span class="eyebrow">AWS MUMBAI / AP-SOUTH-1</span>
+
+      <div class="nodes">
+        <div class="node">
+          <b>VPC</b><small>10.0.0.0/16</small>
+        </div>
+        <div class="node">
+          <b>Private Subnet</b><small>10.0.1.0/24</small>
+        </div>
+        <div class="node">
+          <b>Security Group</b><small>Restricted traffic</small>
+        </div>
+        <div class="node">
+          <b>Amazon EC2</b><small>t3.micro / AL2023</small>
+        </div>
+        <div class="node">
+          <b>Encrypted EBS</b><small>8 GiB gp3</small>
+        </div>
+        <div class="node">
+          <b>IAM Identity Center</b><small>Separate access roles</small>
+        </div>
+      </div>
+
+      <div class="flow">CloudTrail &#8594; Encrypted S3 log storage</div>
+      <div class="flow">AWS APIs &#8594; Python / Boto3 scanner &#8594; Reports</div>
+    </div>
+  </div>
+
+  <div class="two section">
+    <div class="panel">
+      <span class="eyebrow">AUDIT EVIDENCE</span>
+      <h3>CloudTrail delivery</h3>
+      <p class="muted">Recorded log-delivery status</p><br>
+      <span class="status {'pass' if delivery_ok else 'warn'}">
+        {'VERIFIED' if delivery_ok else 'REVIEW REQUIRED'}
+      </span>
+    </div>
+
+    <div class="panel">
+      <span class="eyebrow">COST CONTROL</span>
+      <h3>Infrastructure lifecycle</h3>
+      <p class="muted">Lab resources destroyed after testing</p><br>
+      <span class="status pass">CLEANUP COMPLETED</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <strong>CloudGuard X — AWS Security & Compliance Automation Lab</strong>
+  <p>Terraform / Python / Boto3 / AWS</p><br>
+  <p>Historical assessment, not live monitoring.
+     Pass rates cover recorded scanner evaluations only.
+     Informational results are excluded.
+     SOC 2-inspired, not SOC 2 certified.
+     Final billing verification is separate.</p>
+</footer>
+
+</main>
+
+<script type="application/json" id="audit-data">{data}</script>
+<script>{JS}</script>
+</body>
+</html>
+"""
+
+output = REPORTS / "compliance-dashboard.html"
+output.write_text(HTML, encoding="utf-8")
+
+print("CloudGuard X generated successfully!")
+print("Final pass rate:", final["score"])
+print("Verified remediations:", resolved)
+print("Dashboard:", output)

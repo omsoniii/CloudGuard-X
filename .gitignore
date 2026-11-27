@@ -1,0 +1,36 @@
+
+# Python virtual environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Terraform sensitive files and cache
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+
+# AWS credentials and secrets
+.aws/
+.env
+.env.*
+credentials
+*.pem
+*.key
+
+# Private audit evidence
+reports/
+CloudSecurityLab-PrivateLogs/
+*.log
+*.json.gz
+
+# macOS system files
+.DS_Store
+
+# VS Code settings
+.vscode/
